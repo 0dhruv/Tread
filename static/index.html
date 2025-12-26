@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Indian Stock Market Trading Platform</title>
+    <meta name="description" content="Real-time Indian stock market analysis and paper trading platform">
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Plotly for charts -->
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
+    
+    <!-- Chart.js as alternative -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <i class="fas fa-chart-line"></i>
+                <span>StockTrade<strong>Pro</strong></span>
+            </div>
+            
+            <div class="nav-menu">
+                <a href="#dashboard" class="nav-link active" data-page="dashboard">
+                    <i class="fas fa-home"></i> Dashboard
+                </a>
+                <a href="#markets" class="nav-link" data-page="markets">
+                    <i class="fas fa-chart-bar"></i> Markets
+                </a>
+                <a href="#portfolio" class="nav-link" data-page="portfolio">
+                    <i class="fas fa-briefcase"></i> Portfolio
+                </a>
+                <a href="#ai-assistant" class="nav-link" data-page="ai">
+                    <i class="fas fa-robot"></i> AI Assistant
+                </a>
+            </div>
+            
+            <div class="nav-actions">
+                <button class="btn btn-outline" id="refreshDataBtn">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+                <div class="user-menu">
+                    <button class="btn btn-user" id="userMenuBtn">
+                        <i class="fas fa-user-circle"></i>
+                        <span id="userName">User</span>
+                    </button>
+                    <div class="user-dropdown" id="userDropdown">
+                        <a href="#profile"><i class="fas fa-user"></i> Profile</a>
+                        <a href="#settings"><i class="fas fa-cog"></i> Settings</a>
+                        <a href="#" id="logoutBtn"><i class="fas fa-sign-out-alt"></i> Logout</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Dashboard Page -->
+        <div class="page active" id="page-dashboard">
+            <div class="page-header">
+                <h1>Market Dashboard</h1>
+                <p>Real-time insights from the Indian stock market</p>
+            </div>
+
+            <!-- Stats Cards -->
+            <div class="stats-grid">
+                <div class="stat-card stat-primary">
+                    <div class="stat-icon">
+                        <i class="fas fa-wallet"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>Portfolio Value</h3>
+                        <p class="stat-value" id="portfolioValue">₹10,00,000</p>
+                        <span class="stat-change positive">+5.2%</span>
+                    </div>
+                </div>
+
+                <div class="stat-card stat-success">
+                    <div class="stat-icon">
+                        <i class="fas fa-arrow-trend-up"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>Total P&L</h3>
+                        <p class="stat-value" id="totalPnL">₹0</p>
+                        <span class="stat-change" id="pnlPercent">0%</span>
+                    </div>
+                </div>
+
+                <div class="stat-card stat-info">
+                    <div class="stat-icon">
+                        <i class="fas fa-chart-line"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>Active Positions</h3>
+                        <p class="stat-value" id="activePositions">0</p>
+                        <span class="stat-label">holdings</span>
+                    </div>
+                </div>
+
+                <div class="stat-card stat-warning">
+                    <div class="stat-icon">
+                        <i class="fas fa-coins"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>Cash Balance</h3>
+                        <p class="stat-value" id="cashBalance">₹10,00,000</p>
+                        <span class="stat-label">available</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Market Movers -->
+            <div class="content-grid mt-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="fas fa-rocket"></i> Top Gainers</h2>
+                        <button class="btn btn-sm btn-text" onclick="viewAllMovers('gainers')">View All</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="movers-list" id="topGainers">
+                            <div class="loader"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="fas fa-arrow-down"></i> Top Losers</h2>
+                        <button class="btn btn-sm btn-text" onclick="viewAllMovers('losers')">View All</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="movers-list" id="topLosers">
+                            <div class="loader"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chart Section -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h2><i class="fas fa-chart-area"></i> Market Overview</h2>
+                    <div class="tab-buttons">
+                        <button class="tab-btn active" data-chart="performance">Performance</button>
+                        <button class="tab-btn" data-chart="sectors">Sectors</button>
+                        <button class="tab-btn" data-chart="volume">Volume</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="marketChart" style="height: 400px;"></div>
+                </div>
+            </div>
+
+            <!-- AI Insights -->
+            <div class="card mt-4 ai-insight-card">
+                <div class="card-header">
+                    <h2><i class="fas fa-robot gradient-text"></i> AI Market Insights</h2>
+                    <button class="btn btn-sm btn-primary" onclick="refreshAIInsights()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div id="aiInsights">
+                        <div class="loader"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Markets Page -->
+        <div class="page" id="page-markets">
+            <div class="page-header">
+                <h1>Stock Markets</h1>
+                <p>Browse and analyze 7500+ Indian stocks</p>
+            </div>
+
+            <!-- Search and Filters -->
+            <div class="card">
+                <div class="card-body">
+                    <div class="search-filters">
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="stockSearch" placeholder="Search stocks by name or symbol...">
+                        </div>
+                        
+                        <div class="filter-group">
+                            <select id="sectorFilter" class="filter-select">
+                                <option value="">All Sectors</option>
+                                <option value="Technology">Technology</option>
+                                <option value="Finance">Finance</option>
+                                <option value="Healthcare">Healthcare</option>
+                                <option value="Energy">Energy</option>
+                            </select>
+                            
+                            <select id="changeFilter" class="filter-select">
+                                <option value="">All Changes</option>
+                                <option value="2">+/- 2%</option>
+                                <option value="5">+/- 5%</option>
+                                <option value="10">+/- 10%</option>
+                                <option value="15">+/- 15%</option>
+                            </select>
+                            
+                            <button class="btn btn-primary" onclick="applyFilters()">
+                                <i class="fas fa-filter"></i> Apply
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stocks Table -->
+            <div class="card mt-4">
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="data-table" id="stocksTable">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Name</th>
+                                    <th>Price</th>
+                                    <th>Change</th>
+                                    <th>Change %</th>
+                                    <th>Market Cap</th>
+                                    <th>Sector</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stocksTableBody">
+                                <tr>
+                                    <td colspan="8" class="text-center">
+                                        <div class="loader"></div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Portfolio Page -->
+        <div class="page" id="page-portfolio">
+            <div class="page-header">
+                <h1>My Portfolio</h1>
+                <p>Track your paper trading performance</p>
+            </div>
+
+            <!-- Portfolio Summary -->
+            <div class="portfolio-summary">
+                <div class="summary-card">
+                    <h3>Total Value</h3>
+                    <p class="value-lg" id="portfolioTotalValue">₹10,00,000</p>
+                </div>
+                <div class="summary-card">
+                    <h3>Invested</h3>
+                    <p class="value-lg" id="portfolioInvested">₹0</p>
+                </div>
+                <div class="summary-card">
+                    <h3>Current</h3>
+                    <p class="value-lg" id="portfolioCurrent">₹0</p>
+                </div>
+                <div class="summary-card">
+                    <h3>Unrealized P&L</h3>
+                    <p class="value-lg" id="portfolioUnrealizedPnL">₹0</p>
+                </div>
+            </div>
+
+            <!-- Holdings -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h2>Holdings</h2>
+                    <button class="btn btn-primary" onclick="showTradeModal()">
+                        <i class="fas fa-plus"></i> New Trade
+                    </button>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Stock</th>
+                                    <th>Quantity</th>
+                                    <th>Avg Buy Price</th>
+                                    <th>Current Price</th>
+                                    <th>Invested</th>
+                                    <th>Current Value</th>
+                                    <th>P&L</th>
+                                    <th>P&L %</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="holdingsTableBody">
+                                <tr>
+                                    <td colspan="9" class="text-center">
+                                        <p class="text-muted">No holdings yet. Start trading to build your portfolio!</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Transaction History -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h2>Transaction History</h2>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Type</th>
+                                    <th>Stock</th>
+                                    <th>Quantity</th>
+                                    <th>Price</th>
+                                    <th>Total</th>
+                                    <th>Fee</th>
+                                    <th>P&L</th>
+                                </tr>
+                            </thead>
+                            <tbody id="transactionsTableBody">
+                                <tr>
+                                    <td colspan="8" class="text-center">
+                                        <p class="text-muted">No transactions yet</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Assistant Page -->
+        <div class="page" id="page-ai">
+            <div class="page-header">
+                <h1><i class="fas fa-robot gradient-text"></i> AI Trading Assistant</h1>
+                <p>Get intelligent insights powered by Google Gemini</p>
+            </div>
+
+            <div class="ai-disclaimer card">
+                <div class="card-body">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <p><strong>Disclaimer:</strong> AI suggestions are for educational purposes only and should not be considered as financial advice. Always conduct your own research and consult with certified financial advisors before making investment decisions.</p>
+                </div>
+            </div>
+
+            <!-- AI Chat -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h2>Chat with AI</h2>
+                </div>
+                <div class="card-body">
+                    <div class="chat-container" id="chatContainer">
+                        <div class="chat-message ai-message">
+                            <div class="message-avatar">
+                                <i class="fas fa-robot"></i>
+                            </div>
+                            <div class="message-content">
+                                <p>Hello! I'm your AI trading assistant. I can help you understand markets, analyze stocks, and learn trading strategies. How can I assist you today?</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-input-container">
+                        <input type="text" id="chatInput" placeholder="Ask me anything about trading or markets..." class="chat-input">
+                        <button class="btn btn-primary" onclick="sendMessage()">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Trade Modal -->
+    <div class="modal" id="tradeModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="tradeModalTitle">Buy/Sell Stock</h2>
+                <button class="modal-close" onclick="closeTradeModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="tradeForm">
+                    <div class="form-group">
+                        <label>Stock</label>
+                        <input type="text" id="tradeStockSearch" placeholder="Search stock..." class="form-control">
+                        <input type="hidden" id="tradeStockId">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Action</label>
+                        <div class="btn-group">
+                            <button type="button" class="btn btn-success active" data-action="buy">Buy</button>
+                            <button type="button" class="btn btn-danger" data-action="sell">Sell</button>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Quantity</label>
+                        <input type="number" id="tradeQuantity" min="1" class="form-control" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Price per Share</label>
+                        <input type="number" id="tradePrice" step="0.01" min="0.01" class="form-control" required>
+                    </div>
+                    
+                    <div class="trade-summary">
+                        <div class="summary-row">
+                            <span>Total Value:</span>
+                            <span id="tradeTotalValue">₹0</span>
+                        </div>
+                        <div class="summary-row">
+                            <span>Transaction Fee (0.05%):</span>
+                            <span id="tradeFee">₹0</span>
+                        </div>
+                        <div class="summary-row total">
+                            <span>Net Amount:</span>
+                            <span id="tradeNetAmount">₹0</span>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary btn-block">
+                        Execute Trade
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div class="modal active" id="loginModal">
+        <div class="modal-content modal-sm">
+            <div class="modal-header">
+                <h2>Welcome to StockTradePro</h2>
+            </div>
+            <div class="modal-body">
+                <div class="auth-tabs">
+                    <button class="auth-tab active" data-tab="login">Login</button>
+                    <button class="auth-tab" data-tab="register">Register</button>
+                </div>
+                
+                <!-- Login Form -->
+                <form id="loginForm" class="auth-form">
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" id="loginEmail" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="loginPassword" class="form-control" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">
+                        <i class="fas fa-sign-in-alt"></i> Login
+                    </button>
+                </form>
+                
+                <!-- Register Form -->
+                <form id="registerForm" class="auth-form" style="display: none;">
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" id="registerEmail" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="registerUsername" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Full Name</label>
+                        <input type="text" id="registerFullName" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="registerPassword" class="form-control" minlength="8" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">
+                        <i class="fas fa-user-plus"></i> Create Account
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
