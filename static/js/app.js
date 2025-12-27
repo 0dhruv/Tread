@@ -1,13 +1,15 @@
 /**
- * Main JavaScript Application
- * Handles API calls, UI updates, and user interactions
+ * Stock Trading Platform - Main JavaScript Application
+ * Handles real-time stock data, trading, and UI interactions
  */
 
-// API Configuration
+// ============== Configuration ==============
 const API_BASE_URL = 'http://localhost:8000/api';
 let authToken = localStorage.getItem('authToken');
 let currentUser = null;
 let isLoggingOut = false;
+let searchTimeout = null;
+let selectedStock = null;
 
 // ============== Authentication ==============
 
@@ -41,10 +43,10 @@ async function login(email, password) {
             console.log('Profile load error (non-critical):', e);
         }
 
-        // Load dashboard (don't block on errors)
+        // Load dashboard
         loadDashboard().catch(e => console.log('Dashboard load error:', e));
 
-        showNotification('Login successful!', 'success');
+        showNotification('Login successful! Welcome back.', 'success');
     } catch (error) {
         showNotification('Login failed: ' + error.message, 'error');
     }
@@ -100,11 +102,9 @@ function logout() {
     authToken = null;
     currentUser = null;
 
-    // Show login modal
     document.getElementById('loginModal').classList.add('active');
     document.getElementById('userName').textContent = 'User';
 
-    // Reset form fields
     const loginEmail = document.getElementById('loginEmail');
     const loginPassword = document.getElementById('loginPassword');
     if (loginEmail) loginEmail.value = '';
@@ -134,10 +134,8 @@ async function apiCall(endpoint, options = {}) {
     });
 
     if (response.status === 401) {
-        // Only logout if we're not already in a logout flow
         if (!isLoggingOut) {
             console.log('Session expired, please login again');
-            // Don't auto-logout, just throw error
         }
         throw new Error('Session expired');
     }
@@ -160,16 +158,14 @@ async function loadDashboard() {
     if (!authToken) return;
 
     try {
-        // Load portfolio summary
         const portfolio = await apiCall('/trading/portfolio');
         updatePortfolioStats(portfolio);
     } catch (error) {
         console.log('Portfolio load error:', error.message);
-        // Set default values if portfolio fails
         setDefaultPortfolioStats();
     }
 
-    // Load market data (non-blocking)
+    // Load market movers using real-time API
     loadMarketMovers().catch(e => console.log('Market movers error:', e));
     loadAIInsights().catch(e => console.log('AI insights error:', e));
 }
@@ -200,43 +196,52 @@ function updatePortfolioStats(portfolio) {
     pnlPercent.className = 'stat-change ' + ((pnl.pnl_percent || 0) >= 0 ? 'positive' : 'negative');
 }
 
+// ============== Real-time Market Data ==============
+
 async function loadMarketMovers() {
     try {
-        const gainers = await apiCall('/stocks/market/movers?mover_type=gainers&limit=5');
-        const losers = await apiCall('/stocks/market/movers?mover_type=losers&limit=5');
+        // Use real-time API for market movers
+        const [gainersData, losersData] = await Promise.all([
+            apiCall('/realtime/movers?mover_type=gainers&limit=5'),
+            apiCall('/realtime/movers?mover_type=losers&limit=5')
+        ]);
 
-        displayMovers('topGainers', gainers.stocks || []);
-        displayMovers('topLosers', losers.stocks || []);
+        displayRealtimeMovers('topGainers', gainersData.stocks || []);
+        displayRealtimeMovers('topLosers', losersData.stocks || []);
     } catch (error) {
         console.log('Market movers error:', error.message);
-        document.getElementById('topGainers').innerHTML = '<p class="text-muted">No data available</p>';
-        document.getElementById('topLosers').innerHTML = '<p class="text-muted">No data available</p>';
+        document.getElementById('topGainers').innerHTML = '<p class="text-muted">Loading market data... Click Refresh to try again.</p>';
+        document.getElementById('topLosers').innerHTML = '<p class="text-muted">Loading market data... Click Refresh to try again.</p>';
     }
 }
 
-function displayMovers(containerId, stocks) {
+function displayRealtimeMovers(containerId, stocks) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
     if (!stocks || stocks.length === 0) {
-        container.innerHTML = '<p class="text-muted">No data available</p>';
+        container.innerHTML = '<p class="text-muted">Loading market data...</p>';
         return;
     }
 
     container.innerHTML = stocks.map(stock => `
-        <div class="mover-item" onclick="viewStockDetails(${stock.id})">
+        <div class="mover-item" onclick="openQuickTrade('${stock.display_symbol || stock.symbol}', ${stock.current_price || 0})">
             <div class="mover-info">
-                <strong>${(stock.symbol || '').replace('.NS', '')}</strong>
-                <span class="text-muted">${stock.name || ''}</span>
+                <strong>${stock.display_symbol || stock.symbol}</strong>
+                <span class="text-muted">${truncateName(stock.name || '')}</span>
             </div>
             <div class="mover-price">
                 <strong>${formatCurrency(stock.current_price || 0)}</strong>
-                <span class="stat-change ${(stock.latest_data?.change_percent || 0) >= 0 ? 'positive' : 'negative'}">
-                    ${(stock.latest_data?.change_percent || 0).toFixed(2)}%
+                <span class="stat-change ${(stock.change_percent || 0) >= 0 ? 'positive' : 'negative'}">
+                    ${(stock.change_percent || 0) >= 0 ? '+' : ''}${(stock.change_percent || 0).toFixed(2)}%
                 </span>
             </div>
         </div>
     `).join('');
+}
+
+function truncateName(name, maxLength = 25) {
+    return name.length > maxLength ? name.substring(0, maxLength) + '...' : name;
 }
 
 async function loadAIInsights() {
@@ -251,10 +256,10 @@ async function loadAIInsights() {
         if (insights && insights.status === 'success') {
             container.innerHTML = `<div class="ai-content">${formatAIResponse(insights.overview || '')}</div>`;
         } else {
-            container.innerHTML = '<p class="text-muted">AI assistant is currently unavailable.</p>';
+            container.innerHTML = '<p class="text-muted">AI assistant is currently unavailable. Configure your Gemini API key to enable AI features.</p>';
         }
     } catch (error) {
-        container.innerHTML = '<p class="text-muted">Unable to load AI insights.</p>';
+        container.innerHTML = '<p class="text-muted">Unable to load AI insights. Please try again later.</p>';
     }
 }
 
@@ -269,49 +274,177 @@ function formatAIResponse(text) {
 // ============== Markets Page ==============
 
 async function loadStocks(filters = {}) {
-    try {
-        const params = new URLSearchParams(filters);
-        const data = await apiCall(`/stocks/?${params}`);
-
-        displayStocksTable(data.stocks || []);
-    } catch (error) {
-        console.log('Failed to load stocks:', error.message);
-        document.getElementById('stocksTableBody').innerHTML =
-            '<tr><td colspan="8" class="text-center text-muted">Unable to load stocks</td></tr>';
-    }
-}
-
-function displayStocksTable(stocks) {
     const tbody = document.getElementById('stocksTableBody');
     if (!tbody) return;
 
-    if (!stocks || stocks.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No stocks found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center"><div class="loader"></div></td></tr>';
+
+    try {
+        // Use real-time API to get all stocks
+        const data = await apiCall('/realtime/all-stocks');
+
+        if (data.stocks && data.stocks.length > 0) {
+            displayRealtimeStocksTable(data.stocks, filters);
+        } else {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">Loading stock data... This may take a moment.</td></tr>';
+        }
+    } catch (error) {
+        console.log('Failed to load stocks:', error.message);
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">Unable to load stocks. Please try again.</td></tr>';
+    }
+}
+
+function displayRealtimeStocksTable(stocks, filters = {}) {
+    const tbody = document.getElementById('stocksTableBody');
+    if (!tbody) return;
+
+    // Apply filters
+    let filteredStocks = stocks;
+
+    if (filters.sector) {
+        filteredStocks = filteredStocks.filter(s =>
+            (s.sector || '').toLowerCase().includes(filters.sector.toLowerCase())
+        );
+    }
+
+    if (filters.search) {
+        const search = filters.search.toLowerCase();
+        filteredStocks = filteredStocks.filter(s =>
+            (s.symbol || '').toLowerCase().includes(search) ||
+            (s.name || '').toLowerCase().includes(search)
+        );
+    }
+
+    if (!filteredStocks || filteredStocks.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No stocks found matching your criteria</td></tr>';
         return;
     }
 
-    tbody.innerHTML = stocks.map(stock => `
+    tbody.innerHTML = filteredStocks.map(stock => `
         <tr>
-            <td><strong>${(stock.symbol || '').replace('.NS', '')}</strong></td>
-            <td>${stock.name || ''}</td>
+            <td><strong>${stock.display_symbol || stock.symbol}</strong></td>
+            <td>${truncateName(stock.name || '', 30)}</td>
             <td>${formatCurrency(stock.current_price || 0)}</td>
             <td class="${(stock.change_value || 0) >= 0 ? 'text-success' : 'text-danger'}">
-                ${formatCurrency(stock.change_value || 0)}
+                ${stock.change_value >= 0 ? '+' : ''}${formatCurrency(stock.change_value || 0)}
             </td>
             <td>
                 <span class="stat-change ${(stock.change_percent || 0) >= 0 ? 'positive' : 'negative'}">
-                    ${(stock.change_percent || 0).toFixed(2)}%
+                    ${(stock.change_percent || 0) >= 0 ? '+' : ''}${(stock.change_percent || 0).toFixed(2)}%
                 </span>
             </td>
             <td>${formatMarketCap(stock.market_cap)}</td>
             <td>${stock.sector || 'N/A'}</td>
             <td>
-                <button class="btn btn-sm btn-primary" onclick="openTradeModal(${stock.id}, '${stock.symbol}', ${stock.current_price || 0})">
+                <button class="btn btn-sm btn-primary" onclick="openQuickTrade('${stock.display_symbol || stock.symbol}', ${stock.current_price || 0})">
                     Trade
                 </button>
             </td>
         </tr>
     `).join('');
+}
+
+// ============== Stock Search ==============
+
+async function searchStocks(query) {
+    if (!query || query.length < 1) {
+        hideSearchResults();
+        return;
+    }
+
+    try {
+        const data = await apiCall(`/realtime/search?query=${encodeURIComponent(query)}`);
+        displaySearchResults(data.stocks || []);
+    } catch (error) {
+        console.log('Search error:', error.message);
+        hideSearchResults();
+    }
+}
+
+function displaySearchResults(stocks) {
+    let resultsContainer = document.getElementById('stockSearchResults');
+
+    if (!resultsContainer) {
+        const searchBox = document.querySelector('.search-box');
+        if (!searchBox) return;
+
+        resultsContainer = document.createElement('div');
+        resultsContainer.id = 'stockSearchResults';
+        resultsContainer.className = 'search-results';
+        searchBox.appendChild(resultsContainer);
+    }
+
+    if (!stocks || stocks.length === 0) {
+        resultsContainer.innerHTML = '<div class="search-result-item"><span class="text-muted">No stocks found. Try a different search.</span></div>';
+        resultsContainer.style.display = 'block';
+        return;
+    }
+
+    resultsContainer.innerHTML = stocks.map(stock => `
+        <div class="search-result-item" onclick="selectSearchResult('${stock.display_symbol || stock.symbol}', '${escapeHtml(stock.name)}', ${stock.current_price || 0})">
+            <div class="search-result-info">
+                <span class="search-result-symbol">${stock.display_symbol || stock.symbol}</span>
+                <span class="search-result-name">${truncateName(stock.name || '', 40)}</span>
+            </div>
+            <div class="search-result-price">
+                <strong>${formatCurrency(stock.current_price || 0)}</strong>
+                <span class="stat-change ${(stock.change_percent || 0) >= 0 ? 'positive' : 'negative'}">
+                    ${(stock.change_percent || 0) >= 0 ? '+' : ''}${(stock.change_percent || 0).toFixed(2)}%
+                </span>
+            </div>
+        </div>
+    `).join('');
+
+    resultsContainer.style.display = 'block';
+}
+
+function hideSearchResults() {
+    const resultsContainer = document.getElementById('stockSearchResults');
+    if (resultsContainer) {
+        resultsContainer.style.display = 'none';
+    }
+}
+
+function selectSearchResult(symbol, name, price) {
+    hideSearchResults();
+    openQuickTrade(symbol, price);
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML.replace(/'/g, "\\'");
+}
+
+// ============== Quick Trade ==============
+
+async function openQuickTrade(symbol, price) {
+    try {
+        // Prepare the stock for trading (ensures it's in the database)
+        const prepareData = await apiCall(`/realtime/prepare-trade/${encodeURIComponent(symbol)}`, {
+            method: 'POST'
+        });
+
+        if (prepareData.stock_id) {
+            selectedStock = {
+                id: prepareData.stock_id,
+                symbol: prepareData.symbol,
+                name: prepareData.name,
+                price: prepareData.current_price || price
+            };
+
+            // Open trade modal with this stock
+            document.getElementById('tradeStockSearch').value = `${prepareData.symbol} - ${prepareData.name}`;
+            document.getElementById('tradeStockId').value = prepareData.stock_id;
+            document.getElementById('tradePrice').value = prepareData.current_price || price;
+            document.getElementById('tradeQuantity').value = '';
+            document.getElementById('tradeModalTitle').textContent = `Trade ${prepareData.symbol.replace('.NS', '').replace('.BO', '')}`;
+            document.getElementById('tradeModal').classList.add('active');
+            updateTradeSummary();
+        }
+    } catch (error) {
+        showNotification('Unable to load stock data: ' + error.message, 'error');
+    }
 }
 
 // ============== Portfolio Page ==============
@@ -320,7 +453,6 @@ async function loadPortfolio() {
     try {
         const portfolio = await apiCall('/trading/portfolio');
 
-        // Update summary
         document.getElementById('portfolioTotalValue').textContent = formatCurrency(portfolio.total_portfolio_value || 0);
         document.getElementById('portfolioInvested').textContent = formatCurrency(portfolio.invested_value || 0);
         document.getElementById('portfolioCurrent').textContent = formatCurrency(portfolio.current_value || 0);
@@ -338,13 +470,13 @@ function displayHoldings(holdings) {
     if (!tbody) return;
 
     if (!holdings || holdings.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted">No holdings yet</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted">No holdings yet. Search for stocks and start trading!</td></tr>';
         return;
     }
 
     tbody.innerHTML = holdings.map(holding => `
         <tr>
-            <td><strong>${(holding.stock?.symbol || '').replace('.NS', '')}</strong></td>
+            <td><strong>${(holding.stock?.symbol || '').replace('.NS', '').replace('.BO', '')}</strong></td>
             <td>${holding.quantity || 0}</td>
             <td>${formatCurrency(holding.average_buy_price || 0)}</td>
             <td>${formatCurrency(holding.current_price || 0)}</td>
@@ -355,7 +487,7 @@ function displayHoldings(holdings) {
             </td>
             <td>
                 <span class="stat-change ${(holding.unrealized_pnl_percent || 0) >= 0 ? 'positive' : 'negative'}">
-                    ${(holding.unrealized_pnl_percent || 0).toFixed(2)}%
+                    ${(holding.unrealized_pnl_percent || 0) >= 0 ? '+' : ''}${(holding.unrealized_pnl_percent || 0).toFixed(2)}%
                 </span>
             </td>
             <td>
@@ -393,7 +525,7 @@ function displayTransactions(transactions) {
                     ${txn.transaction_type || ''}
                 </span>
             </td>
-            <td><strong>${(txn.stock?.symbol || '').replace('.NS', '')}</strong></td>
+            <td><strong>${(txn.stock?.symbol || '').replace('.NS', '').replace('.BO', '')}</strong></td>
             <td>${txn.quantity || 0}</td>
             <td>${formatCurrency(txn.price || 0)}</td>
             <td>${formatCurrency(txn.total_value || 0)}</td>
@@ -417,8 +549,18 @@ function openTradeModal(stockId, symbol, price) {
 }
 
 function openSellModal(stockId, symbol, price, maxQty) {
-    openTradeModal(stockId, symbol, price);
-    document.querySelector('[data-action="sell"]')?.click();
+    document.getElementById('tradeStockSearch').value = symbol || '';
+    document.getElementById('tradeStockId').value = stockId || '';
+    document.getElementById('tradePrice').value = price || '';
+    document.getElementById('tradeQuantity').value = '';
+    document.getElementById('tradeModalTitle').textContent = `Sell ${(symbol || '').replace('.NS', '').replace('.BO', '')}`;
+    document.getElementById('tradeModal').classList.add('active');
+
+    // Select sell action
+    document.querySelectorAll('[data-action]').forEach(b => b.classList.remove('active'));
+    document.querySelector('[data-action="sell"]')?.classList.add('active');
+
+    updateTradeSummary();
 }
 
 function updateTradeSummary() {
@@ -456,6 +598,85 @@ async function executeTrade(action, stockId, quantity, price) {
         }
     } catch (error) {
         showNotification(`Trade failed: ${error.message}`, 'error');
+    }
+}
+
+// ============== Trade Modal Stock Search ==============
+
+async function searchTradeStocks(query) {
+    if (!query || query.length < 1) {
+        hideTradeSearchResults();
+        return;
+    }
+
+    try {
+        const data = await apiCall(`/realtime/search?query=${encodeURIComponent(query)}`);
+        displayTradeSearchResults(data.stocks || []);
+    } catch (error) {
+        console.log('Trade search error:', error.message);
+    }
+}
+
+function displayTradeSearchResults(stocks) {
+    let resultsContainer = document.getElementById('tradeSearchResults');
+
+    if (!resultsContainer) {
+        const formGroup = document.getElementById('tradeStockSearch')?.parentElement;
+        if (!formGroup) return;
+
+        formGroup.style.position = 'relative';
+        resultsContainer = document.createElement('div');
+        resultsContainer.id = 'tradeSearchResults';
+        resultsContainer.className = 'search-results';
+        formGroup.appendChild(resultsContainer);
+    }
+
+    if (!stocks || stocks.length === 0) {
+        resultsContainer.innerHTML = '<div class="search-result-item"><span class="text-muted">No stocks found</span></div>';
+        resultsContainer.style.display = 'block';
+        return;
+    }
+
+    resultsContainer.innerHTML = stocks.map(stock => `
+        <div class="search-result-item" onclick="selectTradeStock('${stock.display_symbol || stock.symbol}', '${escapeHtml(stock.name || '')}', ${stock.current_price || 0})">
+            <div class="search-result-info">
+                <span class="search-result-symbol">${stock.display_symbol || stock.symbol}</span>
+                <span class="search-result-name">${truncateName(stock.name || '', 30)}</span>
+            </div>
+            <div class="search-result-price">
+                <strong>${formatCurrency(stock.current_price || 0)}</strong>
+            </div>
+        </div>
+    `).join('');
+
+    resultsContainer.style.display = 'block';
+}
+
+function hideTradeSearchResults() {
+    const resultsContainer = document.getElementById('tradeSearchResults');
+    if (resultsContainer) {
+        resultsContainer.style.display = 'none';
+    }
+}
+
+async function selectTradeStock(symbol, name, price) {
+    hideTradeSearchResults();
+
+    try {
+        // Prepare the stock for trading
+        const prepareData = await apiCall(`/realtime/prepare-trade/${encodeURIComponent(symbol)}`, {
+            method: 'POST'
+        });
+
+        if (prepareData.stock_id) {
+            document.getElementById('tradeStockSearch').value = `${symbol} - ${name}`;
+            document.getElementById('tradeStockId').value = prepareData.stock_id;
+            document.getElementById('tradePrice').value = prepareData.current_price || price;
+            document.getElementById('tradeModalTitle').textContent = `Trade ${symbol.replace('.NS', '').replace('.BO', '')}`;
+            updateTradeSummary();
+        }
+    } catch (error) {
+        showNotification('Unable to prepare stock for trading: ' + error.message, 'error');
     }
 }
 
@@ -523,10 +744,13 @@ function formatMarketCap(value) {
     if (!value) return 'N/A';
 
     const crores = value / 10000000;
-    if (crores >= 1000) {
-        return `₹${(crores / 1000).toFixed(2)}T`;
+    if (crores >= 100000) {
+        return `₹${(crores / 100000).toFixed(2)}L Cr`;
     }
-    return `₹${crores.toFixed(2)}Cr`;
+    if (crores >= 1000) {
+        return `₹${(crores / 1000).toFixed(2)}K Cr`;
+    }
+    return `₹${crores.toFixed(2)} Cr`;
 }
 
 function showNotification(message, type = 'info') {
@@ -592,6 +816,7 @@ function showLoginModal() {
 
 function closeTradeModal() {
     document.getElementById('tradeModal')?.classList.remove('active');
+    selectedStock = null;
 }
 
 function showTradeModal() {
@@ -614,12 +839,10 @@ function switchAuthTab(tab) {
 document.addEventListener('DOMContentLoaded', () => {
     // Check if user is logged in
     if (authToken) {
-        // User has token, hide login modal and load dashboard
         hideLoginModal();
         loadUserProfile().catch(e => console.log('Profile error:', e));
         loadDashboard().catch(e => console.log('Dashboard error:', e));
     } else {
-        // No token, show login modal
         showLoginModal();
     }
 
@@ -666,9 +889,41 @@ document.addEventListener('DOMContentLoaded', () => {
             if (stockId && qty && price) executeTrade(action, stockId, qty, price);
         });
 
-        // Update summary on input
         document.getElementById('tradeQuantity')?.addEventListener('input', updateTradeSummary);
         document.getElementById('tradePrice')?.addEventListener('input', updateTradeSummary);
+    }
+
+    // Trade stock search
+    const tradeStockSearch = document.getElementById('tradeStockSearch');
+    if (tradeStockSearch) {
+        tradeStockSearch.addEventListener('input', (e) => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                searchTradeStocks(e.target.value);
+            }, 300);
+        });
+
+        tradeStockSearch.addEventListener('focus', () => {
+            if (tradeStockSearch.value.length > 0) {
+                searchTradeStocks(tradeStockSearch.value);
+            }
+        });
+    }
+
+    // Markets page stock search
+    const stockSearch = document.getElementById('stockSearch');
+    if (stockSearch) {
+        stockSearch.addEventListener('input', (e) => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                if (e.target.value.length >= 1) {
+                    searchStocks(e.target.value);
+                } else {
+                    hideSearchResults();
+                    loadStocks();
+                }
+            }, 300);
+        });
     }
 
     // Trade action buttons
@@ -700,30 +955,43 @@ document.addEventListener('DOMContentLoaded', () => {
     // Refresh button
     document.getElementById('refreshDataBtn')?.addEventListener('click', () => {
         loadDashboard();
-        showNotification('Data refreshed', 'info');
+        showNotification('Refreshing market data...', 'info');
     });
 
     // User dropdown
     document.getElementById('userMenuBtn')?.addEventListener('click', () => {
         document.getElementById('userDropdown')?.classList.toggle('active');
     });
+
+    // Close dropdowns on outside click
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.user-menu')) {
+            document.getElementById('userDropdown')?.classList.remove('active');
+        }
+        if (!e.target.closest('.search-box') && !e.target.closest('.search-results')) {
+            hideSearchResults();
+        }
+        if (!e.target.closest('.form-group') && !e.target.closest('#tradeSearchResults')) {
+            hideTradeSearchResults();
+        }
+    });
 });
 
-// Placeholder functions for stock details
+// ============== Global Functions ==============
+
 function viewStockDetails(stockId) {
     console.log('View stock details:', stockId);
     showNotification('Stock details feature coming soon', 'info');
 }
 
 function applyFilters() {
-    const sector = document.getElementById('sectorFilter')?.value;
-    const change = document.getElementById('changeFilter')?.value;
-    loadStocks({ sector, min_change: change });
+    const search = document.getElementById('stockSearch')?.value || '';
+    const sector = document.getElementById('sectorFilter')?.value || '';
+    loadStocks({ search, sector });
 }
 
 function viewAllMovers(type) {
     navigateToPage('markets');
-    // Could apply filter here
 }
 
 function refreshAIInsights() {

@@ -12,7 +12,7 @@ import sys
 
 from app.config import settings
 from app.database import init_db, get_db_health
-from app.api import auth_routes, stock_routes, trading_routes, ai_routes
+from app.api import auth_routes, stock_routes, trading_routes, ai_routes, realtime_routes
 
 # Configure logging
 logging.basicConfig(
@@ -158,6 +158,7 @@ app.include_router(auth_routes.router, prefix="/api")
 app.include_router(stock_routes.router, prefix="/api")
 app.include_router(trading_routes.router, prefix="/api")
 app.include_router(ai_routes.router, prefix="/api")
+app.include_router(realtime_routes.router, prefix="/api")
 
 
 # Mount static files for frontend (if exists)
